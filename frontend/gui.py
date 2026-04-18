@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
 from collections import defaultdict
+from datetime import date
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -37,11 +38,7 @@ def register_user():
         if response.status_code == 200:
             messagebox.showinfo("Success", "Registered Successfully")
         else:
-            try:
-                msg = response.json()["message"]
-            except:
-                msg = "Registration Failed"
-            messagebox.showerror("Error", msg)
+            messagebox.showerror("Error", response.json()["message"])
 
     except Exception as e:
         messagebox.showerror("Error", str(e))
@@ -129,13 +126,16 @@ def open_dashboard():
     category_combo = ttk.Combobox(
         left,
         values=["Food", "Travel", "Bills", "Shopping", "Other"],
-        width=25
+        width=25,
+        state="readonly"
     )
     category_combo.pack(pady=5)
+    category_combo.set("Food")
 
     tk.Label(left, text="Date (YYYY-MM-DD)", fg="white", bg=card).pack()
     date_entry = tk.Entry(left, width=28)
     date_entry.pack(pady=5)
+    date_entry.insert(0, str(date.today()))
 
     tk.Button(left, text="Add", width=22, bg="green",
               fg="white", command=add_expense).pack(pady=5)
@@ -202,10 +202,16 @@ def add_expense():
     title = title_entry.get().strip()
     amount = amount_entry.get().strip()
     category = category_combo.get().strip()
-    date = date_entry.get().strip()
+    expense_date = date_entry.get().strip()
 
-    if title == "" or amount == "" or category == "" or date == "":
+    if title == "" or amount == "" or category == "" or expense_date == "":
         messagebox.showerror("Error", "All fields required")
+        return
+
+    try:
+        float(amount)
+    except:
+        messagebox.showerror("Error", "Amount must be numeric")
         return
 
     try:
@@ -213,7 +219,7 @@ def add_expense():
             "title": title,
             "amount": amount,
             "category": category,
-            "date": date,
+            "date": expense_date,
             "user_id": user_id
         })
 
@@ -232,14 +238,24 @@ def load_expenses():
     data = requests.get(f"{API_URL}/expenses/{user_id}").json()
 
     for row in data:
-        tree.insert("", tk.END, values=row)
+        tree.insert("", tk.END, values=(
+            row["id"],
+            row["title"],
+            row["amount"],
+            row["category"],
+            row["date"],
+            row["created"],
+            row["user_id"]
+        ))
 
 
 def clear_fields():
     title_entry.delete(0, tk.END)
     amount_entry.delete(0, tk.END)
-    category_combo.set("")
+    category_combo.set("Food")
+
     date_entry.delete(0, tk.END)
+    date_entry.insert(0, str(date.today()))
 
 
 def select_row(event):
@@ -250,17 +266,16 @@ def select_row(event):
 
     values = tree.item(selected, "values")
 
-    if values:
-        title_entry.delete(0, tk.END)
-        title_entry.insert(0, values[1])
+    title_entry.delete(0, tk.END)
+    title_entry.insert(0, values[1])
 
-        amount_entry.delete(0, tk.END)
-        amount_entry.insert(0, values[2])
+    amount_entry.delete(0, tk.END)
+    amount_entry.insert(0, values[2])
 
-        category_combo.set(values[3])
+    category_combo.set(values[3])
 
-        date_entry.delete(0, tk.END)
-        date_entry.insert(0, values[4])
+    date_entry.delete(0, tk.END)
+    date_entry.insert(0, values[4])
 
 
 def update_expense():
@@ -273,20 +288,16 @@ def update_expense():
     values = tree.item(selected, "values")
     expense_id = values[0]
 
-    try:
-        requests.put(f"{API_URL}/update-expense/{expense_id}", json={
-            "title": title_entry.get(),
-            "amount": amount_entry.get(),
-            "category": category_combo.get(),
-            "date": date_entry.get()
-        })
+    requests.put(f"{API_URL}/update-expense/{expense_id}", json={
+        "title": title_entry.get(),
+        "amount": amount_entry.get(),
+        "category": category_combo.get(),
+        "date": date_entry.get()
+    })
 
-        clear_fields()
-        load_expenses()
-        show_analytics()
-
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
+    clear_fields()
+    load_expenses()
+    show_analytics()
 
 
 def delete_expense():
@@ -299,14 +310,10 @@ def delete_expense():
     values = tree.item(selected, "values")
     expense_id = values[0]
 
-    try:
-        requests.delete(f"{API_URL}/delete-expense/{expense_id}")
+    requests.delete(f"{API_URL}/delete-expense/{expense_id}")
 
-        load_expenses()
-        show_analytics()
-
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
+    load_expenses()
+    show_analytics()
 
 
 def search_expense():
@@ -320,7 +327,15 @@ def search_expense():
     ).json()
 
     for row in data:
-        tree.insert("", tk.END, values=row)
+        tree.insert("", tk.END, values=(
+            row["id"],
+            row["title"],
+            row["amount"],
+            row["category"],
+            row["date"],
+            row["created"],
+            row["user_id"]
+        ))
 
 
 # =====================================================
@@ -342,9 +357,9 @@ def show_analytics():
     total = 0
 
     for row in data:
-        amount = float(row[2])
-        category = row[3]
-        month = str(row[4])[:7]
+        amount = float(row["amount"])
+        category = row["category"]
+        month = str(row["date"])[:7]
 
         total += amount
         category_data[category] += amount

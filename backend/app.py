@@ -1,19 +1,67 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from db import init_db, mysql
+import sqlite3
 
 app = Flask(__name__)
 CORS(app)
 
-init_db(app)
+DB_NAME = "expense_tracker.db"
 
+
+# =====================================================
+# DATABASE FUNCTIONS
+# =====================================================
+
+def get_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_connection()
+    cur = conn.cursor()
+
+    # Users table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        )
+    """)
+
+    # Expenses table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            date TEXT NOT NULL,
+            created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# =====================================================
+# HOME
+# =====================================================
 
 @app.route('/')
 def home():
-    return "Expense Tracker API Running"
+    return "Expense Tracker SQLite API Running"
 
 
-# ================= REGISTER =================
+# =====================================================
+# REGISTER
+# =====================================================
+
 @app.route('/register', methods=['POST'])
 def register():
     try:
@@ -25,15 +73,16 @@ def register():
         if username == "" or password == "":
             return jsonify({"message": "Username and Password required"}), 400
 
-        cur = mysql.connection.cursor()
+        conn = get_connection()
+        cur = conn.cursor()
 
         cur.execute(
-            "INSERT INTO users(username,password) VALUES(%s,%s)",
+            "INSERT INTO users(username,password) VALUES (?,?)",
             (username, password)
         )
 
-        mysql.connection.commit()
-        cur.close()
+        conn.commit()
+        conn.close()
 
         return jsonify({"message": "Registered Successfully"})
 
@@ -41,7 +90,10 @@ def register():
         return jsonify({"message": str(e)}), 400
 
 
-# ================= LOGIN =================
+# =====================================================
+# LOGIN
+# =====================================================
+
 @app.route('/login', methods=['POST'])
 def login():
     try:
@@ -50,24 +102,22 @@ def login():
         username = data['username'].strip()
         password = data['password'].strip()
 
-        if username == "" or password == "":
-            return jsonify({"message": "Enter Username and Password"}), 400
-
-        cur = mysql.connection.cursor()
+        conn = get_connection()
+        cur = conn.cursor()
 
         cur.execute(
-            "SELECT id, username FROM users WHERE username=%s AND password=%s",
+            "SELECT id, username FROM users WHERE username=? AND password=?",
             (username, password)
         )
 
         user = cur.fetchone()
-        cur.close()
+        conn.close()
 
         if user:
             return jsonify({
                 "message": "Login Success",
-                "user_id": user[0],
-                "username": user[1]
+                "user_id": user["id"],
+                "username": user["username"]
             })
 
         return jsonify({"message": "Invalid Credentials"}), 401
@@ -76,17 +126,21 @@ def login():
         return jsonify({"message": str(e)}), 400
 
 
-# ================= ADD EXPENSE =================
+# =====================================================
+# ADD EXPENSE
+# =====================================================
+
 @app.route('/add-expense', methods=['POST'])
 def add_expense():
     try:
         data = request.json
 
-        cur = mysql.connection.cursor()
+        conn = get_connection()
+        cur = conn.cursor()
 
         cur.execute("""
             INSERT INTO expenses(title, amount, category, date, user_id)
-            VALUES(%s,%s,%s,%s,%s)
+            VALUES (?, ?, ?, ?, ?)
         """, (
             data['title'],
             data['amount'],
@@ -95,8 +149,8 @@ def add_expense():
             data['user_id']
         ))
 
-        mysql.connection.commit()
-        cur.close()
+        conn.commit()
+        conn.close()
 
         return jsonify({"message": "Expense Added"})
 
@@ -104,40 +158,44 @@ def add_expense():
         return jsonify({"message": str(e)}), 400
 
 
-# ================= GET USER EXPENSES =================
+# =====================================================
+# GET USER EXPENSES
+# =====================================================
+
 @app.route('/expenses/<int:user_id>', methods=['GET'])
 def get_expenses(user_id):
-    cur = mysql.connection.cursor()
-    cur.execute("SELECT * FROM expenses WHERE user_id=%s", (user_id,))
-    data = cur.fetchall()
-    cur.close()
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT * FROM expenses WHERE user_id=? ORDER BY id DESC",
+        (user_id,)
+    )
+
+    rows = cur.fetchall()
+    conn.close()
+
+    data = [dict(row) for row in rows]
 
     return jsonify(data)
 
 
-# ================= DELETE =================
-@app.route('/delete-expense/<int:id>', methods=['DELETE'])
-def delete_expense(id):
-    cur = mysql.connection.cursor()
-    cur.execute("DELETE FROM expenses WHERE id=%s", (id,))
-    mysql.connection.commit()
-    cur.close()
+# =====================================================
+# UPDATE
+# =====================================================
 
-    return jsonify({"message": "Deleted"})
-
-
-# ================= UPDATE =================
 @app.route('/update-expense/<int:id>', methods=['PUT'])
 def update_expense(id):
     try:
         data = request.json
 
-        cur = mysql.connection.cursor()
+        conn = get_connection()
+        cur = conn.cursor()
 
         cur.execute("""
             UPDATE expenses
-            SET title=%s, amount=%s, category=%s, date=%s
-            WHERE id=%s
+            SET title=?, amount=?, category=?, date=?
+            WHERE id=?
         """, (
             data['title'],
             data['amount'],
@@ -146,30 +204,55 @@ def update_expense(id):
             id
         ))
 
-        mysql.connection.commit()
-        cur.close()
+        conn.commit()
+        conn.close()
 
-        return jsonify({"message": "Updated"})
+        return jsonify({"message": "Updated Successfully"})
 
     except Exception as e:
         return jsonify({"message": str(e)}), 400
 
 
-# ================= SEARCH =================
+# =====================================================
+# DELETE
+# =====================================================
+
+@app.route('/delete-expense/<int:id>', methods=['DELETE'])
+def delete_expense(id):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        "DELETE FROM expenses WHERE id=?",
+        (id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"message": "Deleted Successfully"})
+
+
+# =====================================================
+# SEARCH
+# =====================================================
+
 @app.route('/search-expense/<int:user_id>', methods=['GET'])
 def search_expense(user_id):
-    q = request.args.get('q')
+    q = request.args.get('q', '').strip()
 
-    cur = mysql.connection.cursor()
+    conn = get_connection()
+    cur = conn.cursor()
 
     cur.execute("""
         SELECT * FROM expenses
-        WHERE user_id=%s
+        WHERE user_id=?
         AND (
-            title LIKE %s OR
-            category LIKE %s OR
-            date LIKE %s
+            title LIKE ?
+            OR category LIKE ?
+            OR date LIKE ?
         )
+        ORDER BY id DESC
     """, (
         user_id,
         f"%{q}%",
@@ -177,11 +260,18 @@ def search_expense(user_id):
         f"%{q}%"
     ))
 
-    data = cur.fetchall()
-    cur.close()
+    rows = cur.fetchall()
+    conn.close()
+
+    data = [dict(row) for row in rows]
 
     return jsonify(data)
 
 
+# =====================================================
+# MAIN
+# =====================================================
+
 if __name__ == '__main__':
+    init_db()
     app.run(debug=True)
