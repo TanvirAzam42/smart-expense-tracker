@@ -45,6 +45,7 @@ source .venv/bin/activate
 
 4️⃣ Install Dependencies
 pip install flask flask-cors requests matplotlib pyinstaller
+run this - pyinstaller --onefile --windowed main_app.py  
 🚀 Run Application (Recommended)
 Single Command Launch
 python main_app.py

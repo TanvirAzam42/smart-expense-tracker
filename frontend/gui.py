@@ -1,3 +1,7 @@
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from openpyxl import Workbook
 import tkinter as tk
 from tkinter import ttk, messagebox
 import requests
@@ -158,6 +162,14 @@ def open_dashboard():
     tk.Button(left, text="Refresh", width=22,
               bg="gray", fg="white",
               command=lambda: [load_expenses(), show_analytics()]).pack(pady=5)
+
+    tk.Button(left, text="Export Excel", width=22,
+              bg="#6a1b9a", fg="white",
+              command=export_excel).pack(pady=5)
+
+    tk.Button(left, text="Export PDF", width=22,
+              bg="#d84315", fg="white",
+              command=export_pdf).pack(pady=5)
 
     tk.Button(left, text="Logout", width=22,
               bg="black", fg="white",
@@ -389,6 +401,221 @@ def show_analytics():
     canvas2 = FigureCanvasTkAgg(fig2, chart_frame)
     canvas2.get_tk_widget().grid(row=0, column=1, padx=10, pady=10)
 
+def export_pdf():
+    try:
+        data = requests.get(f"{API_URL}/expenses/{user_id}").json()
+
+        if not data:
+            messagebox.showerror("Error", "No data to export")
+            return
+
+        filename = f"expense_report_{username}.pdf"
+
+        doc = SimpleDocTemplate(filename)
+        elements = []
+
+        styles = getSampleStyleSheet()
+
+        elements.append(
+            Paragraph(f"Expense Report - {username}", styles["Title"])
+        )
+
+        elements.append(Spacer(1, 15))
+
+        table_data = [
+            ["ID", "Title", "Amount", "Category", "Date"]
+        ]
+
+        total = 0
+
+        for row in data:
+            table_data.append([
+                row["id"],
+                row["title"],
+                row["amount"],
+                row["category"],
+                row["date"]
+            ])
+            total += float(row["amount"])
+
+        table = Table(table_data)
+
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.darkblue),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("GRID", (0,0), (-1,-1), 1, colors.black),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("BOTTOMPADDING", (0,0), (-1,0), 8)
+        ]))
+
+        elements.append(table)
+        elements.append(Spacer(1, 20))
+
+        elements.append(
+            Paragraph(f"Total Expense: ₹ {total:.2f}", styles["Heading2"])
+        )
+
+        doc.build(elements)
+
+        messagebox.showinfo("Success", f"PDF Exported as {filename}")
+
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+
+
+def export_pdf():
+    try:
+        import os
+        from collections import defaultdict
+
+        from reportlab.platypus import (
+            SimpleDocTemplate,
+            Table,
+            TableStyle,
+            Paragraph,
+            Spacer,
+            Image,
+            PageBreak
+        )
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet
+
+        # Get user data
+        data = requests.get(f"{API_URL}/expenses/{user_id}").json()
+
+        if not data:
+            messagebox.showerror("Error", "No data to export")
+            return
+
+        filename = f"expense_report_{username}.pdf"
+
+        # =================================================
+        # PREPARE ANALYTICS
+        # =================================================
+        category_data = defaultdict(float)
+        monthly_data = defaultdict(float)
+        total = 0
+
+        for row in data:
+            amount = float(row["amount"])
+            category = row["category"]
+            month = str(row["date"])[:7]
+
+            total += amount
+            category_data[category] += amount
+            monthly_data[month] += amount
+
+        # =================================================
+        # CREATE CHART IMAGES
+        # =================================================
+
+        pie_file = "temp_pie_chart.png"
+        bar_file = "temp_bar_chart.png"
+
+        # Pie Chart
+        fig1 = plt.figure(figsize=(6, 4))
+        plt.pie(
+            category_data.values(),
+            labels=category_data.keys(),
+            autopct="%1.1f%%"
+        )
+        plt.title("Category Wise Expense")
+        plt.tight_layout()
+        plt.savefig(pie_file)
+        plt.close(fig1)
+
+        # Bar Chart
+        fig2 = plt.figure(figsize=(6, 4))
+        plt.bar(monthly_data.keys(), monthly_data.values())
+        plt.title("Monthly Expense")
+        plt.xlabel("Month")
+        plt.ylabel("Amount")
+        plt.tight_layout()
+        plt.savefig(bar_file)
+        plt.close(fig2)
+
+        # =================================================
+        # BUILD PDF
+        # =================================================
+
+        doc = SimpleDocTemplate(filename)
+        styles = getSampleStyleSheet()
+        elements = []
+
+        # Title
+        elements.append(
+            Paragraph(f"Expense Report - {username}", styles["Title"])
+        )
+
+        elements.append(Spacer(1, 15))
+
+        # Total
+        elements.append(
+            Paragraph(f"Total Expense: ₹ {total:.2f}", styles["Heading2"])
+        )
+
+        elements.append(Spacer(1, 15))
+
+        # Table Data
+        table_data = [
+            ["ID", "Title", "Amount", "Category", "Date"]
+        ]
+
+        for row in data:
+            table_data.append([
+                row["id"],
+                row["title"],
+                row["amount"],
+                row["category"],
+                row["date"]
+            ])
+
+        table = Table(table_data)
+
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.darkblue),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("GRID", (0,0), (-1,-1), 1, colors.black),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold")
+        ]))
+
+        elements.append(table)
+
+        elements.append(PageBreak())
+
+        # Charts Page
+        elements.append(
+            Paragraph("Expense Analytics", styles["Title"])
+        )
+
+        elements.append(Spacer(1, 20))
+
+        elements.append(Image(pie_file, width=420, height=280))
+        elements.append(Spacer(1, 20))
+
+        elements.append(Image(bar_file, width=420, height=280))
+
+        # Build PDF
+        doc.build(elements)
+
+        # Remove temp files
+        if os.path.exists(pie_file):
+            os.remove(pie_file)
+
+        if os.path.exists(bar_file):
+            os.remove(bar_file)
+
+        messagebox.showinfo(
+            "Success",
+            f"PDF Exported as {filename}"
+        )
+
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
 
 # =====================================================
 # ---------------- LOGOUT -----------------------------
@@ -402,6 +629,42 @@ def logout():
 # =====================================================
 # ---------------- LOGIN WINDOW -----------------------
 # =====================================================
+def export_excel():
+    try:
+        data = requests.get(f"{API_URL}/expenses/{user_id}").json()
+
+        if not data:
+            messagebox.showerror("Error", "No data to export")
+            return
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Expenses"
+
+        # Headers
+        headers = ["ID", "Title", "Amount", "Category", "Date", "Created", "User ID"]
+        ws.append(headers)
+
+        # Rows
+        for row in data:
+            ws.append([
+                row["id"],
+                row["title"],
+                row["amount"],
+                row["category"],
+                row["date"],
+                row["created"],
+                row["user_id"]
+            ])
+
+        filename = f"expense_report_{username}.xlsx"
+        wb.save(filename)
+
+        messagebox.showinfo("Success", f"Exported as {filename}")
+
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
 
 def open_login():
     global login_window, login_user_entry, login_pass_entry
