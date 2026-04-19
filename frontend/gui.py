@@ -8,6 +8,7 @@ import requests
 from collections import defaultdict
 from datetime import date
 
+
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
